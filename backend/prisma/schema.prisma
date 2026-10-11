@@ -1,0 +1,73 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String               @id @default(uuid())
+  email        String               @unique
+  name         String?
+  avatarUrl    String?
+  googleId     String?              @unique
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  slackAccount SlackAccount?
+  emailBatches ScheduledEmailBatch[]
+}
+
+model SlackAccount {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken String
+  botUserId   String?
+  teamId      String
+  teamName    String?
+  channelId   String?
+  channelName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ScheduledEmailBatch {
+  id                  String              @id @default(uuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderEmail         String
+  subject             String
+  bodyText            String
+  scheduledAt         DateTime
+  delayBetweenSendsMs Int                 @default(2000)
+  hourlyLimit         Int                 @default(50)
+  status              String              @default("SCHEDULED") // SCHEDULED, PROCESSING, COMPLETED, FAILED, CANCELLED
+  totalRecipients     Int                 @default(0)
+  sentCount           Int                 @default(0)
+  failedCount         Int                 @default(0)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  recipients          EmailRecipientLog[]
+}
+
+model EmailRecipientLog {
+  id                 String              @id @default(uuid())
+  batchId            String
+  batch              ScheduledEmailBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  recipientEmail     String
+  status             String              @default("SCHEDULED") // SCHEDULED, PROCESSING, SENT, FAILED, RESCHEDULED
+  jobId              String?             @unique
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  etherealPreviewUrl String?
+  attempts           Int                 @default(0)
+  lastError          String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([batchId])
+  @@index([status])
+  @@index([recipientEmail])
+}
