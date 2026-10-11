@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { Prisma, EmailRecipientLog, ScheduledEmailBatch } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { requireAuth } from '../middleware/auth.middleware';
 import { scheduleEmailJob, emailQueue } from '../lib/queue';
@@ -21,31 +21,16 @@ const ScheduleEmailSchema = z.object({
   hourlyLimit: z.number().int().positive().optional().default(50),
 });
 
-type ScheduledRecipientLog = Prisma.EmailRecipientLogGetPayload<{
-  include: {
-    batch: {
-      select: {
-        senderEmail: true;
-        subject: true;
-        bodyText: true;
-        hourlyLimit: true;
-        delayBetweenSendsMs: true;
-      };
-    };
-  };
-}>;
+type ScheduledRecipientLog = EmailRecipientLog & {
+  batch: Pick<
+    ScheduledEmailBatch,
+    'senderEmail' | 'subject' | 'bodyText' | 'hourlyLimit' | 'delayBetweenSendsMs'
+  >;
+};
 
-type SentRecipientLog = Prisma.EmailRecipientLogGetPayload<{
-  include: {
-    batch: {
-      select: {
-        senderEmail: true;
-        subject: true;
-        bodyText: true;
-      };
-    };
-  };
-}>;
+type SentRecipientLog = EmailRecipientLog & {
+  batch: Pick<ScheduledEmailBatch, 'senderEmail' | 'subject' | 'bodyText'>;
+};
 
 // 1. Schedule Emails Endpoint
 router.post('/schedule', requireAuth, async (req: Request, res: Response) => {
