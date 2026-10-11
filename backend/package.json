@@ -7,9 +7,10 @@
     "build": "prisma generate && tsc",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "dev:worker": "ts-node-dev --respawn --transpile-only src/worker.ts",
-    "start": "node dist/index.js",
-    "start:worker": "node dist/worker.js",
+    "start": "prisma migrate deploy && node dist/index.js",
+    "start:worker": "prisma migrate deploy && node dist/worker.js",
     "prisma:generate": "prisma generate",
+    "prisma:deploy": "prisma migrate deploy",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "test": "jest --runInBand --detectOpenHandles"

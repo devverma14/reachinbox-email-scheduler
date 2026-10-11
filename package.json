@@ -13,6 +13,7 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "prisma:generate": "cd backend && npx prisma generate",
+    "prisma:deploy": "cd backend && npx prisma migrate deploy",
     "prisma:migrate": "cd backend && npx prisma migrate dev --name init"
   },
   "workspaces": [
