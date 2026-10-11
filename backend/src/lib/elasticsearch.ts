@@ -1,4 +1,5 @@
 import { Client } from '@elastic/elasticsearch';
+import { Prisma } from '@prisma/client';
 import { config } from '../config';
 import prisma from './prisma';
 
@@ -93,6 +94,12 @@ export async function searchEmailsInES(userId: string, queryText: string) {
     console.warn('[Elasticsearch] Search query failed, falling back to PostgreSQL search:', (error as Error).message);
     
     // Fallback search in Postgres
+    type FallbackRecipientLog = Prisma.EmailRecipientLogGetPayload<{
+      include: {
+        batch: true;
+      };
+    }>;
+
     const fallbackResults = await prisma.emailRecipientLog.findMany({
       where: {
         batch: { userId },
@@ -109,7 +116,7 @@ export async function searchEmailsInES(userId: string, queryText: string) {
       orderBy: { createdAt: 'desc' },
     });
 
-    return fallbackResults.map((r) => ({
+    return fallbackResults.map((r: FallbackRecipientLog) => ({
       logId: r.id,
       batchId: r.batchId,
       userId: r.batch.userId,

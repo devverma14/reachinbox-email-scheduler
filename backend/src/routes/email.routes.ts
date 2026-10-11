@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import prisma from '../lib/prisma';
 import { requireAuth } from '../middleware/auth.middleware';
 import { scheduleEmailJob, emailQueue } from '../lib/queue';
@@ -20,6 +21,32 @@ const ScheduleEmailSchema = z.object({
   hourlyLimit: z.number().int().positive().optional().default(50),
 });
 
+type ScheduledRecipientLog = Prisma.EmailRecipientLogGetPayload<{
+  include: {
+    batch: {
+      select: {
+        senderEmail: true;
+        subject: true;
+        bodyText: true;
+        hourlyLimit: true;
+        delayBetweenSendsMs: true;
+      };
+    };
+  };
+}>;
+
+type SentRecipientLog = Prisma.EmailRecipientLogGetPayload<{
+  include: {
+    batch: {
+      select: {
+        senderEmail: true;
+        subject: true;
+        bodyText: true;
+      };
+    };
+  };
+}>;
+
 // 1. Schedule Emails Endpoint
 router.post('/schedule', requireAuth, async (req: Request, res: Response) => {
   let createdBatchId: string | null = null;
@@ -34,7 +61,7 @@ router.post('/schedule', requireAuth, async (req: Request, res: Response) => {
     const baseDelayMs = Math.max(0, scheduledDate.getTime() - now);
 
     // Transactionally create Batch & Recipient Logs in DB
-    const { batch, recipientLogs } = await prisma.$transaction(async (tx) => {
+    const { batch, recipientLogs } = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const batchRecord = await tx.scheduledEmailBatch.create({
         data: {
           userId,
@@ -212,7 +239,7 @@ router.get('/scheduled', requireAuth, async (req: Request, res: Response) => {
     ]);
 
     res.json({
-      data: logs.map((log) => ({
+      data: logs.map((log: ScheduledRecipientLog) => ({
         id: log.id,
         batchId: log.batchId,
         senderEmail: log.batch.senderEmail,
@@ -270,7 +297,7 @@ router.get('/sent', requireAuth, async (req: Request, res: Response) => {
     ]);
 
     res.json({
-      data: logs.map((log) => ({
+      data: logs.map((log: SentRecipientLog) => ({
         id: log.id,
         batchId: log.batchId,
         senderEmail: log.batch.senderEmail,
