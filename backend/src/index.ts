@@ -46,7 +46,7 @@ passport.deserializeUser((user: any, done) => done(null, user));
 
 // Health Check Endpoint
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString(), env: config.nodeEnv });
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString(), env: config.nodeEnv });
 });
 
 // API Routes

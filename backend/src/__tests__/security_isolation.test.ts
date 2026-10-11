@@ -230,4 +230,15 @@ describe('Demo Workspace Isolation & Security Tests', () => {
     expect(meB.body.user.id).toBe(userB.id);
     expect(meB.body.user.id).not.toBe(userA.id);
   });
+
+  it('8. Health check endpoint returns HTTP 200 with status ok and no sensitive data', async () => {
+    const res = await supertest(app).get('/health');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.timestamp).toBeDefined();
+    expect(res.body.env).toBeDefined();
+    expect(res.body.databaseUrl).toBeUndefined();
+    expect(res.body.sessionSecret).toBeUndefined();
+    expect(res.body.password).toBeUndefined();
+  });
 });

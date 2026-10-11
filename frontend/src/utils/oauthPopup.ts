@@ -1,4 +1,4 @@
-import { authApi } from '../services/api';
+import { authApi, API_BASE_URL } from '../services/api';
 
 export interface OAuthPopupOptions {
   onSuccess: () => void;
@@ -19,7 +19,7 @@ export const openGoogleOAuthPopup = ({
   const top = window.screenY + (window.outerHeight - height) / 2;
 
   const popup = window.open(
-    '/api/auth/google',
+    `${API_BASE_URL}/auth/google`,
     'google_oauth_popup',
     `width=${width},height=${height},left=${left},top=${top},status=0,toolbar=0,menubar=0,location=1`
   );
@@ -66,8 +66,15 @@ export const openGoogleOAuthPopup = ({
     }
   };
 
+  const allowedOrigins = [window.location.origin];
+  try {
+    if (API_BASE_URL.startsWith('http://') || API_BASE_URL.startsWith('https://')) {
+      allowedOrigins.push(new URL(API_BASE_URL).origin);
+    }
+  } catch (_) {}
+
   const handleMessage = (event: MessageEvent) => {
-    if (event.origin !== window.location.origin) return;
+    if (!allowedOrigins.includes(event.origin)) return;
     if (event.source !== popup) return;
 
     if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
