@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterAll, jest } from '@jest/globals'
 import supertest from 'supertest';
 import express from 'express';
 import session from 'express-session';
+import { WebClient } from '@slack/web-api';
 import authRoutes from '../routes/auth.routes';
 import prisma from '../lib/prisma';
 import { emailQueue } from '../lib/queue';
@@ -14,6 +15,7 @@ describe('Production Session Persistence & Authentication Tests', () => {
   beforeEach(() => {
     usersDb.clear();
     jest.spyOn(console, 'error').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     // In-memory mock for prisma.user to enable testing without external DB connection
     jest.spyOn(prisma.user, 'findUnique').mockImplementation(((args: any) => {
@@ -40,6 +42,21 @@ describe('Production Session Persistence & Authentication Tests', () => {
       };
       usersDb.set(newUser.id, newUser);
       return Promise.resolve(newUser);
+    }) as any);
+
+    jest.spyOn(prisma.slackAccount, 'upsert').mockImplementation((() => {
+      return Promise.resolve({
+        id: 'slack_1',
+        userId: 'usr_1',
+        accessToken: 'xoxb-real-verified-token',
+        botUserId: 'U99999999',
+        teamId: 'T99999999',
+        teamName: 'ReachInbox Team',
+        channelId: 'C99999999',
+        channelName: '#reach-alerts',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
     }) as any);
   });
 
@@ -200,5 +217,54 @@ describe('Production Session Persistence & Authentication Tests', () => {
 
     const meAfter = await agent.get('/api/auth/me');
     expect(meAfter.status).toBe(401);
+  });
+
+  it('9. Slack OAuth callback redirects to valid canonical frontend root with slack_success=true', async () => {
+    const origClientId = config.slack.clientId;
+    config.slack.clientId = 'test-slack-client-id';
+
+    jest.spyOn(WebClient.prototype as any, 'apiCall').mockImplementation(async (method: any) => {
+      if (method === 'oauth.v2.access') {
+        return {
+          ok: true,
+          access_token: 'xoxb-real-verified-token',
+          bot_user_id: 'U99999999',
+          team: { id: 'T99999999', name: 'ReachInbox Team' },
+          incoming_webhook: { channel: '#reach-alerts', channel_id: 'C99999999' },
+        };
+      }
+      return { ok: true };
+    });
+
+    try {
+      const app = (await import('../index')).default;
+      const agent = supertest.agent(app);
+
+      // Authenticate first
+      await agent.post('/api/auth/dev-login').send({});
+
+      // Initiate Slack OAuth
+      const authRes = await agent.get('/api/auth/slack/authorize');
+      expect(authRes.status).toBe(200);
+      const authUrl = new URL(authRes.body.url);
+      const state = authUrl.searchParams.get('state');
+
+      // Callback
+      const callbackRes = await agent.get(`/api/auth/slack/callback?code=mock_code_123&state=${state}`);
+      expect(callbackRes.status).toBe(302);
+
+      const cleanClientUrl = config.clientUrl.replace(/\/+$/, '');
+      expect(callbackRes.headers.location).toBe(`${cleanClientUrl}/?slack_success=true`);
+    } finally {
+      config.slack.clientId = origClientId;
+    }
+  });
+
+  it('10. Slack OAuth callback with invalid state redirects to valid canonical frontend root with slack_error', async () => {
+    const app = (await import('../index')).default;
+    const res = await supertest(app).get('/api/auth/slack/callback?code=mock_code&state=forged_state');
+    expect(res.status).toBe(302);
+    const cleanClientUrl = config.clientUrl.replace(/\/+$/, '');
+    expect(res.headers.location).toBe(`${cleanClientUrl}/?slack_error=invalid_state`);
   });
 });

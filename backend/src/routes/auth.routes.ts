@@ -394,15 +394,16 @@ router.get('/slack/authorize', requireAuth, (req: Request, res: Response) => {
 
 router.get('/slack/callback', async (req: Request, res: Response) => {
   const { code, state, error } = req.query;
+  const frontendUrl = config.clientUrl.replace(/\/+$/, '');
 
   // 1. Handle OAuth rejection or error from Slack
   if (error) {
-    return res.redirect(`${config.clientUrl}/dashboard?slack_error=${encodeURIComponent(String(error))}`);
+    return res.redirect(`${frontendUrl}/?slack_error=${encodeURIComponent(String(error))}`);
   }
 
   // 2. Reject missing code or state
   if (!code || !state || typeof state !== 'string') {
-    return res.redirect(`${config.clientUrl}/dashboard?slack_error=missing_code_or_state`);
+    return res.redirect(`${frontendUrl}/?slack_error=missing_code_or_state`);
   }
 
   // 3. Retrieve and validate state against session-bound state
@@ -417,7 +418,7 @@ router.get('/slack/callback', async (req: Request, res: Response) => {
 
   if (!sessionState || !sessionUserId || state !== sessionState) {
     console.warn('[Slack Callback Warning] State validation failed. Possible CSRF attack or expired session.');
-    return res.redirect(`${config.clientUrl}/dashboard?slack_error=invalid_state`);
+    return res.redirect(`${frontendUrl}/?slack_error=invalid_state`);
   }
 
   try {
@@ -427,7 +428,7 @@ router.get('/slack/callback', async (req: Request, res: Response) => {
     });
 
     if (!userExists) {
-      return res.redirect(`${config.clientUrl}/dashboard?slack_error=user_not_found`);
+      return res.redirect(`${frontendUrl}/?slack_error=user_not_found`);
     }
 
     const web = new WebClient();
@@ -465,13 +466,22 @@ router.get('/slack/callback', async (req: Request, res: Response) => {
         },
       });
 
-      return res.redirect(`${config.clientUrl}/dashboard?slack_success=true`);
+      if (req.session) {
+        return req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('[Slack Callback Error] Failed to persist session:', saveErr);
+          }
+          return res.redirect(`${frontendUrl}/?slack_success=true`);
+        });
+      }
+
+      return res.redirect(`${frontendUrl}/?slack_success=true`);
     }
 
-    res.redirect(`${config.clientUrl}/dashboard?slack_error=oauth_failed`);
+    res.redirect(`${frontendUrl}/?slack_error=oauth_failed`);
   } catch (err) {
     console.error('[Slack Callback Error]', err);
-    res.redirect(`${config.clientUrl}/dashboard?slack_error=server_error`);
+    res.redirect(`${frontendUrl}/?slack_error=server_error`);
   }
 });
 

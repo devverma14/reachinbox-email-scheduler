@@ -13,13 +13,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    // Check for query parameters passed on redirect (e.g. auth_error)
+    // Check for query parameters passed on redirect (e.g. auth_error or slack_error)
     const urlParams = new URLSearchParams(window.location.search);
     const authError = urlParams.get('auth_error');
-    if (authError) {
-      setErrorMsg(authError);
+    const slackError = urlParams.get('slack_error');
+    if (authError || slackError) {
+      setErrorMsg(authError || `Slack authorization failed: ${slackError?.replace(/_/g, ' ')}`);
       // Clean up URL query parameters from browser history immediately
-      window.history.replaceState({}, document.title, window.location.pathname);
+      window.history.replaceState({}, document.title, '/');
+    } else if (window.location.pathname === '/dashboard') {
+      window.history.replaceState({}, document.title, '/');
     }
   }, []);
 

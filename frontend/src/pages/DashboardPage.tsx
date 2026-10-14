@@ -8,7 +8,7 @@ import { SlackModal } from '../components/SlackModal';
 import { SearchModal } from '../components/SearchModal';
 import { emailApi, authApi } from '../services/api';
 import { User, SlackDetails, ScheduledEmail, SentEmail, EmailStats } from '../types';
-import { Calendar, Send, AlertTriangle, Gauge, Plus, RefreshCw, Cpu } from 'lucide-react';
+import { Calendar, Send, AlertTriangle, Gauge, Plus, RefreshCw, Cpu, CheckCircle2 } from 'lucide-react';
 
 interface DashboardPageProps {
   user: User;
@@ -39,11 +39,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [scheduledEmails, setScheduledEmails] = useState<ScheduledEmail[]>([]);
   const [sentEmails, setSentEmails] = useState<SentEmail[]>([]);
   const [loading, setLoading] = useState(false);
+  const [slackAlert, setSlackAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Modals
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [isSlackModalOpen, setIsSlackModalOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Handle Slack OAuth redirect query params & normalize pathname
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const slackSuccess = params.get('slack_success');
+    const slackError = params.get('slack_error');
+
+    if (slackSuccess === 'true') {
+      setSlackAlert({
+        type: 'success',
+        message: 'Slack workspace connected successfully! Real-time alerts are now active.',
+      });
+      onRefreshAuth();
+      window.history.replaceState({}, document.title, '/');
+    } else if (slackError) {
+      setSlackAlert({
+        type: 'error',
+        message: `Slack connection error: ${slackError.replace(/_/g, ' ')}`,
+      });
+      window.history.replaceState({}, document.title, '/');
+    } else if (window.location.pathname === '/dashboard') {
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, [onRefreshAuth]);
 
   // Fetch Dashboard Data
   const fetchData = useCallback(async () => {
@@ -108,6 +133,32 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       {/* Main Dashboard Workspace */}
       <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6 flex-1">
         
+        {/* Slack OAuth Status Alert */}
+        {slackAlert && (
+          <div
+            className={`p-4 rounded-2xl flex items-center justify-between border shadow-sm animate-in fade-in slide-in-from-top-2 duration-200 ${
+              slackAlert.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
+          >
+            <div className="flex items-center space-x-3">
+              {slackAlert.type === 'success' ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+              )}
+              <span className="text-sm font-semibold">{slackAlert.message}</span>
+            </div>
+            <button
+              onClick={() => setSlackAlert(null)}
+              className="p-1 rounded-lg hover:bg-black/5 text-slate-500 hover:text-slate-800 text-xs font-bold"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Header Bar */}
         <div className="flex items-center justify-between">
           <div>
