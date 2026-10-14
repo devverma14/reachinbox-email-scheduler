@@ -142,19 +142,38 @@ router.post('/dev-login', async (req: Request, res: Response) => {
         where: { id: existingUserId },
       });
       if (existingUser) {
-        return res.json({
-          message: 'Session identity restored',
-          user: existingUser,
+        return req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error('[Dev Login Error] Failed to persist existing session:', saveErr);
+            return res.status(500).json({ error: 'Failed to persist session.' });
+          }
+          return res.json({
+            message: 'Session identity restored',
+            user: existingUser,
+          });
         });
       }
     }
 
     const { email, name } = req.body;
-    let userEmail = email;
+    let userEmail = typeof email === 'string' ? email.trim() : '';
+
+    // Safety restriction: Ensure dev-login can ONLY be used for demo accounts
+    // Prevent taking over admin accounts or non-demo accounts
+    if (
+      userEmail &&
+      (userEmail.toLowerCase() === config.admin.email.toLowerCase() ||
+        !userEmail.toLowerCase().endsWith('@reachinbox.ai') ||
+        !userEmail.toLowerCase().startsWith('demo.'))
+    ) {
+      return res.status(403).json({
+        error: 'Dev login is restricted to demo accounts (@reachinbox.ai).',
+      });
+    }
 
     // Generate unique per-session demo email if none or default specified
     if (!userEmail || userEmail === 'demo.user@reachinbox.ai') {
-      const uniqueSuffix = Math.random().toString(36).substring(2, 9);
+      const uniqueSuffix = crypto.randomBytes(4).toString('hex');
       userEmail = `demo.${uniqueSuffix}@reachinbox.ai`;
     }
 
@@ -163,6 +182,13 @@ router.post('/dev-login', async (req: Request, res: Response) => {
     let user = await prisma.user.findUnique({
       where: { email: userEmail },
     });
+
+    // If an existing user was found, make sure it is not an account linked with Google
+    if (user && user.googleId) {
+      return res.status(403).json({
+        error: 'Dev login cannot access accounts linked with Google.',
+      });
+    }
 
     if (!user) {
       user = await prisma.user.create({
@@ -174,12 +200,31 @@ router.post('/dev-login', async (req: Request, res: Response) => {
       });
     }
 
-    (req.session as any).userId = user.id;
+    const saveSessionAndRespond = () => {
+      (req.session as any).userId = user.id;
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('[Dev Login Error] Failed to persist session:', saveErr);
+          return res.status(500).json({ error: 'Failed to persist session.' });
+        }
+        return res.json({
+          message: 'Signed in successfully via Dev Mode',
+          user,
+        });
+      });
+    };
 
-    res.json({
-      message: 'Signed in successfully via Dev Mode',
-      user,
-    });
+    if (typeof req.session.regenerate === 'function') {
+      req.session.regenerate((regenErr) => {
+        if (regenErr) {
+          console.error('[Dev Login Error] Failed to regenerate session:', regenErr);
+          return res.status(500).json({ error: 'Failed to initialize session.' });
+        }
+        saveSessionAndRespond();
+      });
+    } else {
+      saveSessionAndRespond();
+    }
   } catch (error) {
     console.error('[Dev Login Error]', error);
     res.status(500).json({ error: 'Failed to authenticate demo session.' });
@@ -281,29 +326,35 @@ router.get('/google/callback', (req, res, next) => {
 
       (req.session as any).userId = user.id;
 
-      res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>Authentication Successful</title></head>
-        <body style="background:#0f172a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
-          <div style="text-align:center;padding:24px;">
-            <h3 style="margin-bottom:8px;color:#10b981;">Authentication Successful</h3>
-            <p style="color:#94a3b8;font-size:13px;">Completing login...</p>
-          </div>
-          <script>
-            (function() {
-              var targetOrigin = ${JSON.stringify(targetOrigin)};
-              if (window.opener && !window.opener.closed) {
-                try {
-                  window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, targetOrigin);
-                } catch(e) {}
-              }
-              setTimeout(function() { window.close(); }, 300);
-            })();
-          </script>
-        </body>
-        </html>
-      `);
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error('[Google OAuth Error] Failed to persist session:', saveErr);
+        }
+
+        res.send(`
+          <!DOCTYPE html>
+          <html>
+          <head><title>Authentication Successful</title></head>
+          <body style="background:#0f172a;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+            <div style="text-align:center;padding:24px;">
+              <h3 style="margin-bottom:8px;color:#10b981;">Authentication Successful</h3>
+              <p style="color:#94a3b8;font-size:13px;">Completing login...</p>
+            </div>
+            <script>
+              (function() {
+                var targetOrigin = ${JSON.stringify(targetOrigin)};
+                if (window.opener && !window.opener.closed) {
+                  try {
+                    window.opener.postMessage({ type: 'GOOGLE_AUTH_SUCCESS' }, targetOrigin);
+                  } catch(e) {}
+                }
+                setTimeout(function() { window.close(); }, 300);
+              })();
+            </script>
+          </body>
+          </html>
+        `);
+      });
     });
   })(req, res, next);
 });
@@ -467,8 +518,18 @@ router.post('/slack/disconnect', requireAuth, async (req: Request, res: Response
 
 // 7. Logout
 router.post('/logout', (req: Request, res: Response) => {
-  req.session.destroy(() => {
-    res.clearCookie('connect.sid');
+  const isProduction = config.nodeEnv === 'production';
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('[Logout Error] Failed to destroy session:', err);
+    }
+    res.clearCookie('connect.sid', {
+      path: '/',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
+      httpOnly: true,
+      domain: process.env.SESSION_DOMAIN || undefined,
+    });
     res.json({ message: 'Logged out successfully.' });
   });
 });

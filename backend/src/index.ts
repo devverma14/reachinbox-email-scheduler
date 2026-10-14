@@ -14,10 +14,27 @@ import { reconcileOrphanedJobs } from './lib/queue';
 
 const app = express();
 
+const isProduction = config.nodeEnv === 'production';
+
+// Render / Reverse Proxy: Trust first proxy hop so req.secure is accurately detected for HTTPS
+if (isProduction || process.env.TRUST_PROXY === '1' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
+
+// Ensure CORS allows client origins with or without trailing slash
+const allowedOrigins = Array.from(
+  new Set([
+    config.clientUrl,
+    config.clientUrl.replace(/\/+$/, ''),
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ].filter(Boolean))
+);
+
 // Middlewares
 app.use(
   cors({
-    origin: [config.clientUrl, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin: allowedOrigins,
     credentials: true,
   })
 );
@@ -31,9 +48,11 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: config.nodeEnv === 'production',
+      secure: isProduction,
+      sameSite: isProduction ? 'none' : 'lax',
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      domain: process.env.SESSION_DOMAIN || undefined,
     },
   })
 );
